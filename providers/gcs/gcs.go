@@ -16,12 +16,11 @@ import (
 	"github.com/go-kit/log"
 	"github.com/pkg/errors"
 	"github.com/prometheus/common/version"
+	"github.com/thanos-io/objstore"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
 	"gopkg.in/yaml.v2"
-
-	"github.com/thanos-io/objstore"
 )
 
 // DirDelim is the delimiter used to model a directory structure in an object store bucket.
@@ -91,6 +90,15 @@ func (b *Bucket) Name() string {
 	return b.name
 }
 
+func (b *Bucket) IsIterOptionSupported(opt objstore.IterOptionType) bool {
+	switch opt {
+	case objstore.Recursive, objstore.UpdatedAt:
+		return true
+	default:
+		return false
+	}
+}
+
 // Iter calls f for each entry in the given directory. The argument to f is the full
 // object name including the prefix of the inspected directory.
 func (b *Bucket) Iter(ctx context.Context, dir string, f func(name string, attrs objstore.ObjectAttributes) error, options ...objstore.IterOption) error {
@@ -98,6 +106,12 @@ func (b *Bucket) Iter(ctx context.Context, dir string, f func(name string, attrs
 	// object itself as one prefix item.
 	if dir != "" {
 		dir = strings.TrimSuffix(dir, DirDelim) + DirDelim
+	}
+
+	for _, opt := range options {
+		if !b.IsIterOptionSupported(opt.Type) {
+			return fmt.Errorf("gcs: iteration option is not supported: %v", opt.Type)
+		}
 	}
 
 	appliedOpts := objstore.ApplyIterOptions(options...)

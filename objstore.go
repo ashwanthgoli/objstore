@@ -105,20 +105,41 @@ type InstrumentedBucketReader interface {
 	ReaderWithExpectedErrs(IsOpFailureExpectedFunc) BucketReader
 }
 
+// IterOptionType is used for type-safe option support checking
+type IterOptionType int
+
+const (
+	Recursive IterOptionType = iota
+	UpdatedAt
+)
+
 // IterOption configures the provided params.
-type IterOption func(params *IterParams)
+type IterOption struct {
+	Type  IterOptionType
+	Apply func(params *IterParams)
+}
 
 // WithRecursiveIter is an option that can be applied to Iter() to recursively list objects
 // in the bucket.
-func WithRecursiveIter(params *IterParams) {
-	params.Recursive = true
+func WithRecursiveIter() IterOption {
+	return IterOption{
+		Type: Recursive,
+		Apply: func(params *IterParams) {
+			params.Recursive = true
+		},
+	}
 }
 
 // WithUpdatedAt is an option that can be applied to Iter() to
 // return the updated time attribute of each object.
 // This option is currently supported for the GCS and Filesystem providers.
-func WithUpdatedAt(params *IterParams) {
-	params.WithUpdatedAt = true
+func WithUpdatedAt(params *IterParams) IterOption {
+	return IterOption{
+		Type: UpdatedAt,
+		Apply: func(params *IterParams) {
+			params.WithUpdatedAt = true
+		},
+	}
 }
 
 // IterParams holds the Iter() parameters and is used by objstore clients implementations.
@@ -130,7 +151,7 @@ type IterParams struct {
 func ApplyIterOptions(options ...IterOption) IterParams {
 	out := IterParams{}
 	for _, opt := range options {
-		opt(&out)
+		opt.Apply(&out)
 	}
 	return out
 }
