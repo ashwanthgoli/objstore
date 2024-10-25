@@ -90,28 +90,15 @@ func (b *Bucket) Name() string {
 	return b.name
 }
 
-func (b *Bucket) IsIterOptionSupported(opt objstore.IterOptionType) bool {
-	switch opt {
-	case objstore.Recursive, objstore.UpdatedAt:
-		return true
-	default:
-		return false
-	}
+func (b *Bucket) SupportedIterOptions() []objstore.IterOptionType {
+	return []objstore.IterOptionType{objstore.Recursive, objstore.UpdatedAt}
 }
 
-// Iter calls f for each entry in the given directory. The argument to f is the full
-// object name including the prefix of the inspected directory.
-func (b *Bucket) Iter(ctx context.Context, dir string, f func(name string, attrs objstore.ObjectAttributes) error, options ...objstore.IterOption) error {
+func (b *Bucket) IterWithAttributes(ctx context.Context, dir string, f func(attrs objstore.IterObjectAttributes) error, options ...objstore.IterOption) error {
 	// Ensure the object name actually ends with a dir suffix. Otherwise we'll just iterate the
 	// object itself as one prefix item.
 	if dir != "" {
 		dir = strings.TrimSuffix(dir, DirDelim) + DirDelim
-	}
-
-	for _, opt := range options {
-		if !b.IsIterOptionSupported(opt.Type) {
-			return fmt.Errorf("gcs: iteration option is not supported: %v", opt.Type)
-		}
 	}
 
 	appliedOpts := objstore.ApplyIterOptions(options...)
@@ -123,7 +110,7 @@ func (b *Bucket) Iter(ctx context.Context, dir string, f func(name string, attrs
 	if appliedOpts.Recursive {
 		query.Delimiter = ""
 	}
-	if appliedOpts.WithUpdatedAt {
+	if appliedOpts.LastModified {
 		if err := query.SetAttrSelection([]string{"Updated"}); err != nil {
 			return err
 		}
@@ -143,11 +130,30 @@ func (b *Bucket) Iter(ctx context.Context, dir string, f func(name string, attrs
 		if err != nil {
 			return err
 		}
-		objAttrs := objstore.ObjectAttributes{LastModified: attrs.Updated}
-		if err := f(attrs.Prefix+attrs.Name, objAttrs); err != nil {
+
+		objAttrs := objstore.IterObjectAttributes{Name: attrs.Prefix + attrs.Name}
+		objAttrs.SetLastModified(attrs.Updated)
+		if err := f(objAttrs); err != nil {
 			return err
 		}
 	}
+}
+
+// Iter calls f for each entry in the given directory. The argument to f is the full
+// object name including the prefix of the inspected directory.
+func (b *Bucket) Iter(ctx context.Context, dir string, f func(string) error, opts ...objstore.IterOption) error {
+	// Only include recursive option since attributes are not used in this method.
+	var filteredOpts []objstore.IterOption
+	for _, opt := range opts {
+		if opt.Type == objstore.Recursive {
+			filteredOpts = append(filteredOpts, opt)
+			break
+		}
+	}
+
+	return b.IterWithAttributes(ctx, dir, func(attrs objstore.IterObjectAttributes) error {
+		return f(attrs.Name)
+	}, filteredOpts...)
 }
 
 // Get returns a reader for the given object name.
